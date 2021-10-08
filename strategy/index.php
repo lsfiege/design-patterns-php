@@ -6,9 +6,9 @@ class Load extends Command
 {
     // ...
 
-    public function handle()
+    public function handle(LedgerReaderFactory $factory)
     {
-        $reader = new LedgerReader($this->option('format'));
+        $reader = $factory->make($this->option('format')));
         $transactions = $reader->parse($this->argument('input'));
 
         foreach ($transactions as $transaction) {
@@ -27,9 +27,9 @@ class LedgerReader
 {
     private $parser;
 
-    public function __construct($format)
+    public function __construct($parser)
     {
-        $this->parser = $this->makeParser($format);
+        $this->parser = $parser;
     }
 
     public function parse($path)
@@ -52,13 +52,6 @@ class LedgerReader
 
         return $transactions;
     }
-
-    private function makeParser(string $format): Parser
-    {
-        $factory = new ParserFactory;
-
-        return $factory->make($format);
-    }
 }
 
 class ParserFactory
@@ -78,6 +71,22 @@ class ParserFactory
         }
     }
 }
+
+class LedgerReaderFactory
+{
+    private $parserFactory;
+
+    public function __construct(ParserFactory $factory)
+    {
+        $this->parserFactory = $factory;
+    }
+
+    public function make($format): LedgerReader
+    {
+        return new LedgerReader($this->parserFactory->make($format));
+    }
+}
+
 
 class RawParser implements Parser
 {
