@@ -55,10 +55,23 @@ class LedgerReader
 
     private function makeParser(string $format): Parser
     {
+        $factory = new ParserFactory;
+
+        return $factory->make($format);
+    }
+}
+
+class ParserFactory
+{
+    const RAW = 'raw';
+    const CSV = 'csv';
+
+    public function make(string $format): Parser
+    {
         switch ($format) {
-            case 'raw':
+            case self::RAW:
                 return new RawParser;
-            case 'csv':
+            case self::CSV:
                 return new CsvParser;
             default:
                 throw new \RuntimeException('Unsupported format: ' . $format);
