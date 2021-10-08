@@ -17,33 +17,47 @@ class Load extends Command
     }
 }
 
+// Now we need to support another file format with a different structure
+
 class LedgerReader
 {
-    public function parse($path)
+    public function parse($path, $format = 'raw')
     {
         $reader = new SplFileObject(realpath($path));
         $reader->setFlags(SplFileObject::READ_CSV);
-        $reader->setCsvControl("\t");
+        
+        if ($format == 'raw') {
+            $reader->setCsvControl("\t");
+        } elseif ($format == 'csv') {
+            $reader->setCsvControl(',');
+        } else {
+            throw new \RuntimeException('Unknown format: ' . $format);
+        }
 
-        return $this->readTransactions($reader);
+        return $this->readTransactions($reader, $format);
     }
 
-    private function readTransactions($reader)
+    private function readTransactions($reader, $format)
     {
         $transactions = [];
         foreach ($reader as $record) {
             if ($record[0] == null) {
                 continue;
             }
-            $transactions[] = $this->parseRecord($record);
+            
+            if ($format == 'raw') {
+                $transactions[] = $this->parseRawRecord($record);
+            } else {
+                $transactions[] = $this->parseCsvRecord($record);
+            }
         }
 
         return $transactions;
     }
 
-    public function parseRecord($record)
+    public function parseRawRecord($record)
     {
-        $type = $this->getType(array_slice($record, -3));
+        $type = $this->getRawType(array_slice($record, -3));
 
         return new Transaction([
             'date' => Carbon::parse($record[0]),
@@ -52,18 +66,45 @@ class LedgerReader
         ]);
     }
 
-    private function getType($attributes)
+    private function getRawType($attributes)
     {
-        [$debit, $creedit] = $attributes;
+        [$debit, $credit] = $attributes;
 
-        if ($credt == TransactionType::NOT_APPLICABLE) {
+        if ($credit == TransactionType::NOT_APPLICABLE) {
             return new Debit($this->toCents($debit));
         }
 
         return new Credit($this->toCents($credit));
     }
+
+    public function parseCsvRecord($record)
+    {
+        $type = $this->getCsvType(array_slice($record, -2));
+
+        return new Transaction([
+            'date' => Carbon::parse($record[0]),
+            'description' => $record[1],
+            'type' => $type,
+        ]);
+    }
+
+    private function getCsvType($attributes)
+    {
+        [$debit, $credit] = $attributes;
+
+        if (empty($credit)) {
+            return new Debit($this->toCents($debit));
+        }
+
+        return new Credit($this->toCents($credit));
+    }
+
+    private function toCents($dollarsAndCents)
+    {
+        return str_replace(['$', '.', ','], '', $dollarsAndCents);
+    }
 }
 
 /*
- * What happens if the file format and structure are differents?
+ * Things got over complicated huh?, let's fix this
  */
