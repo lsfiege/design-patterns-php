@@ -1,13 +1,14 @@
 <?php
 
-// php artisan taxatron:load /path/to/some/ledger.txt
+// php artisan taxatron:load /path/to/some/ledger.txt --format=csv
 
 class Load extends Command
 {
     // ...
 
-    public function handle(LedgerReader $reader)
+    public function handle()
     {
+        $reader = new LedgerReader($this->option('format'));
         $transactions = $reader->parse($this->argument('input'));
 
         foreach ($transactions as $transaction) {
@@ -17,49 +18,60 @@ class Load extends Command
     }
 }
 
+interface Parser
+{
+    public function parse(string $line): Transaction;
+}
+
 class LedgerReader
 {
-    public function parse($path, $format = 'raw')
-    {
-        $reader = new SplFileObject(realpath($path));
-        $reader->setFlags(SplFileObject::READ_CSV);
-        
-        if ($format == 'raw') {
-            $reader->setCsvControl("\t");
-        } elseif ($format == 'csv') {
-            $reader->setCsvControl(',');
-        } else {
-            throw new \RuntimeException('Unknown format: ' . $format);
-        }
+    private $parser;
 
-        return $this->readTransactions($reader, $format);
+    public function __construct($format)
+    {
+        $this->parser = $this->makeParser($format);
     }
 
-    private function readTransactions($reader, $format)
+    public function parse($path)
     {
-        // Here we cant do this since the upper parse method is doing the same branching
-        // So let's move to new next git branch
-        if ($format == 'raw') {
-            $parser = (new ParseRawStrategy);
-        } else {
-            $parse = (new ParseCsvStrategy);
-        }
+        $reader = new SplFileObject(realpath($path));
+        
+        return $this->readTransactions($reader);
+    }
 
+    private function readTransactions($reader)
+    {
         $transactions = [];
-        foreach ($reader as $record) {
-            if ($record[0] == null) {
+        foreach ($reader as $line) {
+            if (empty($line)) {
                 continue;
             }
 
-            $transactions[] = $parser->parse($record);
+            $transactions[] = $this->parser->parse($line);
         }
 
         return $transactions;
     }
 
-    public function parseRawRecord($record)
+    private function makeParser(string $format): Parser
     {
-        $type = $this->getRawType(array_slice($record, -3));
+        switch ($format) {
+            case 'raw':
+                return new RawParser;
+            case 'csv':
+                return new CsvParser;
+            default:
+                throw new \RuntimeException('Unsupported format: ' . $format);
+        }
+    }
+}
+
+class RawParser implements Parser
+{
+    public function parse($line): Transaction
+    {
+        $record = str_getcsv($line, "\t");
+        $type = $this->getType(array_slice($record, -3));
 
         return new Transaction([
             'date' => Carbon::parse($record[0]),
@@ -68,7 +80,7 @@ class LedgerReader
         ]);
     }
 
-    private function getRawType($attributes)
+    private function getType($attributes)
     {
         [$debit, $credit] = $attributes;
 
@@ -78,35 +90,26 @@ class LedgerReader
 
         return new Credit($this->toCents($credit));
     }
+}
 
-    public function parseCsvRecord($record)
+class CsvParser implements Parser
+{
+    public function parse($line): Transaction
     {
-        $type = $this->getCsvType(array_slice($record, -2));
+        $record = str_getcsv($line, "\t");
+        [$date, $description] = $record;
 
         return new Transaction([
-            'date' => Carbon::parse($record[0]),
-            'description' => $record[1],
-            'type' => $type,
+            'date' => Carbon::parse($date),
+            'description' => $description,
+            'type' => $this->getType(array_slice($record, -2)),
         ]);
     }
 
-    private function getCsvType($attributes)
+    private function getType($attributes)
     {
         [$debit, $credit] = $attributes;
 
-        if (empty($credit)) {
-            return new Debit($this->toCents($debit));
-        }
-
-        return new Credit($this->toCents($credit));
-    }
-
-    private function toCents($dollarsAndCents)
-    {
-        return str_replace(['$', '.', ','], '', $dollarsAndCents);
+        return $credit ? new Credit($credit) : new Debit($debit);
     }
 }
-
-/*
- * Things got over complicated huh?, let's fix this
- */
