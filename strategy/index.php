@@ -17,8 +17,6 @@ class Load extends Command
     }
 }
 
-// Now we need to support another file format with a different structure
-
 class LedgerReader
 {
     public function parse($path, $format = 'raw')
@@ -39,17 +37,21 @@ class LedgerReader
 
     private function readTransactions($reader, $format)
     {
+        // Here we cant do this since the upper parse method is doing the same branching
+        // So let's move to new next git branch
+        if ($format == 'raw') {
+            $parser = (new ParseRawStrategy);
+        } else {
+            $parse = (new ParseCsvStrategy);
+        }
+
         $transactions = [];
         foreach ($reader as $record) {
             if ($record[0] == null) {
                 continue;
             }
-            
-            if ($format == 'raw') {
-                $transactions[] = $this->parseRawRecord($record);
-            } else {
-                $transactions[] = $this->parseCsvRecord($record);
-            }
+
+            $transactions[] = $parser->parse($record);
         }
 
         return $transactions;
